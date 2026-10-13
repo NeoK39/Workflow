@@ -99,6 +99,7 @@ jobs:
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.google.code.gson:gson:2.10.1'
               implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+              implementation 'androidx.work:work-runtime-ktx:2.9.0'
           }
           EOF
 
@@ -156,6 +157,10 @@ jobs:
           import android.webkit.WebView
           import android.webkit.WebViewClient
           import androidx.appcompat.app.AppCompatActivity
+          import androidx.work.ExistingPeriodicWorkPolicy
+          import androidx.work.PeriodicWorkRequestBuilder
+          import androidx.work.WorkManager
+          import java.util.concurrent.TimeUnit
 
           class MainActivity : AppCompatActivity() {
               private lateinit var webView: WebView
@@ -190,7 +195,20 @@ jobs:
                   webView.loadUrl("https://nemo39.base44.app")
               }
 
-              override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+              scheduleWidgetRefresh()
+          }
+
+          private fun scheduleWidgetRefresh() {
+              val request = PeriodicWorkRequestBuilder<MoodRefreshWorker>(15, TimeUnit.MINUTES)
+                  .build()
+              WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                  "mood_widget_refresh",
+                  ExistingPeriodicWorkPolicy.UPDATE,
+                  request
+              )
+          }
+
+          override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
                   if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
                       webView.goBack()
                       return true
@@ -252,6 +270,11 @@ jobs:
                   context.sendBroadcast(Intent(ACTION_REFRESH_WIDGET).setPackage(context.packageName))
               }
 
+              @JavascriptInterface
+              fun refreshWidget() {
+                  context.sendBroadcast(Intent(ACTION_REFRESH_WIDGET).setPackage(context.packageName))
+              }
+
               companion object {
                   const val PREFS_NAME = "duospace_mood_prefs"
                   const val KEY_TOKEN = "base44_access_token"
@@ -270,6 +293,25 @@ jobs:
           class MoodWidgetRefreshReceiver : BroadcastReceiver() {
               override fun onReceive(context: Context, intent: Intent) {
                   MoodWidgetProvider.refreshAll(context)
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/duospace/mood/MoodRefreshWorker.kt
+          package com.duospace.mood
+
+          import android.content.Context
+          import androidx.work.CoroutineWorker
+          import androidx.work.WorkerParameters
+
+          class MoodRefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+              override suspend fun doWork(): Result {
+                  return try {
+                      MoodWidgetProvider.refreshAllSync(applicationContext)
+                      Result.success()
+                  } catch (e: Exception) {
+                      Result.retry()
+                  }
               }
           }
           EOF
@@ -391,6 +433,13 @@ jobs:
                           val mood = fetchMood(context)
                           ids.forEach { updateWidget(context, mgr, it, mood) }
                       }
+                  }
+
+                  fun refreshAllSync(context: Context) {
+                      val mgr = AppWidgetManager.getInstance(context)
+                      val ids = mgr.getAppWidgetIds(ComponentName(context, MoodWidgetProvider::class.java))
+                      val mood = fetchMood(context)
+                      ids.forEach { updateWidget(context, mgr, it, mood) }
                   }
 
                   private fun parseColor(hex: String, fallback: Int): Int {
