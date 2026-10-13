@@ -193,10 +193,9 @@ jobs:
                       }
                   }
                   webView.loadUrl("https://nemo39.base44.app")
-              }
-
-              scheduleWidgetRefresh()
-          }
+                  scheduleWidgetRefresh()
+                  }
+                  }
 
           private fun scheduleWidgetRefresh() {
               val request = PeriodicWorkRequestBuilder<MoodRefreshWorker>(15, TimeUnit.MINUTES)
